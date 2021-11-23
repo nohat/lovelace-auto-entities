@@ -71,7 +71,7 @@ async function getDevice(hass, device_id) {
     const devices = await getDevices(hass);
     cache.device_index = {};
     devices.forEach((device) => {
-      cache.device_index[device.device_id] = device;
+      cache.device_index[device.id] = device;
     });
   }
   return cache.device_index[device_id];
