@@ -55,33 +55,64 @@ async function getEntities(hass) {
   return cache.entities;
 }
 
+async function getArea(hass, area_id) {
+  if (!cache.area_index) {
+    const areas = await getAreas(hass);
+    cache.area_index = {};
+    areas.forEach((area) => {
+      cache.area_index[area.area_id] = area;
+    });
+  }
+  return cache.area_index[area_id];
+}
+
+async function getDevice(hass, device_id) {
+  if (!cache.device_index) {
+    const devices = await getDevices(hass);
+    cache.device_index = {};
+    devices.forEach((device) => {
+      cache.device_index[device.device_id] = device;
+    });
+  }
+  return cache.device_index[device_id];
+}
+
+async function getEntity(hass, entity_id) {
+  if (!cache.entity_index) {
+    const entities = await getEntities(hass);
+    cache.entity_index = {};
+    entities.forEach((entity) => {
+      cache.entity_index[entity.entity_id] = entity;
+    });
+  }
+  return cache.entity_index[entity_id];
+}
+
 const FILTERS: Record<
   string,
-  (hass: HassObject, value: any, entity: HAState) => Promise<boolean>
+  (hass: HassObject, value: any, state: HAState) => Promise<boolean>
 > = {
   options: async () => true,
   sort: async () => true,
-  domain: async (hass, value, entity) => {
-    return match(value, entity.entity_id.split(".")[0]);
+  domain: async (hass, value, state) => {
+    return match(value, state.entity_id.split(".")[0]);
   },
-  entity_id: async (hass, value, entity) => {
-    return match(value, entity.entity_id);
+  entity_id: async (hass, value, state) => {
+    return match(value, state.entity_id);
   },
-  state: async (hass, value, entity) => {
-    return match(value, entity.state);
+  state: async (hass, value, state) => {
+    return match(value, state.state);
   },
-  name: async (hass, value, entity) => {
-    return match(value, entity.attributes?.friendly_name);
+  name: async (hass, value, state) => {
+    return match(value, state.attributes?.friendly_name);
   },
-  group: async (hass, value, entity) => {
-    return hass.states[value]?.attributes?.entity_id?.includes(
-      entity.entity_id
-    );
+  group: async (hass, value, state) => {
+    return hass.states[value]?.attributes?.entity_id?.includes(state.entity_id);
   },
-  attributes: async (hass, value, entity) => {
+  attributes: async (hass, value, state) => {
     for (const [k, v] of Object.entries(value as Record<string, any>)) {
       let attr = k.split(" ")[0]; // Remove any suffixes
-      let obj = entity.attributes;
+      let obj = state.attributes;
       for (const step of attr.split(":")) {
         obj = obj ? obj[step] : undefined;
       }
@@ -89,51 +120,52 @@ const FILTERS: Record<
     }
     return true;
   },
-  not: async (hass, value, entity) => {
-    return !(await filter_entity(hass, value, entity.entity_id));
+  category: async (hass, value, state) => {
+    const entity = await getEntity(hass, state.entity_id);
+    return match(value, entity.entity_category);
   },
-  or: async (hass, value, entity) => {
+  not: async (hass, value, state) => {
+    return !(await filter_entity(hass, value, state.entity_id));
+  },
+  or: async (hass, value, state) => {
     for (const v of value) {
-      if (await filter_entity(hass, v, entity.entity_id)) return true;
+      if (await filter_entity(hass, v, state.entity_id)) return true;
     }
     return false;
   },
-  device: async (hass, value, entity) => {
-    const ent = (await getEntities(hass)).find(
-      (e) => e.entity_id === entity.entity_id
-    );
-    if (!ent) return false;
-    const device = (await getDevices(hass)).find((d) => d.id === ent.device_id);
+  device: async (hass, value, state) => {
+    const entity = await getEntity(hass, state.entity_id);
+    if (!entity) return false;
+    const device = await getDevice(hass, entity.device_id);
     if (!device) return false;
     return match(value, device.name_by_user) || match(value, device.name);
   },
-  area: async (hass, value, entity) => {
-    const ent = (await getEntities(hass)).find(
-      (e) => e.entity_id === entity.entity_id
-    );
-    if (!ent) return false;
-    let area = (await getAreas(hass)).find((a) => a.area_id === ent.area_id);
-    if (area) return match(value, area.name);
-    const device = (await getDevices(hass)).find((d) => d.id === ent.device_id);
+  area: async (hass, value, state) => {
+    const entity = await getEntity(hass, state.entity_id);
+    if (!entity) return false;
+    const entity_area = await getArea(hass, entity.area_id);
+    if (entity_area) return match(value, entity_area.name);
+
+    const device = await getDevice(hass, entity.device_id);
     if (!device) return false;
-    area = (await getAreas(hass)).find((a) => a.area_id === device.area_id);
-    if (!area) return false;
-    return match(value, area.name);
+    const device_area = await getArea(hass, device.area_id);
+    if (!device_area) return false;
+    return match(value, device_area.name);
   },
-  last_changed: async (hass, value, entity) => {
+  last_changed: async (hass, value, state) => {
     const now = new Date().getTime();
-    const changed = new Date(entity.last_changed).getTime();
+    const changed = new Date(state.last_changed).getTime();
     return match(value, (now - changed) / 60000);
   },
-  last_updated: async (hass, value, entity) => {
+  last_updated: async (hass, value, state) => {
     const now = new Date().getTime();
-    const updated = new Date(entity.last_updated).getTime();
+    const updated = new Date(state.last_updated).getTime();
     return match(value, (now - updated) / 60000);
   },
-  last_triggered: async (hass, value, entity) => {
-    if (entity.attributes.last_triggered == null) return false;
+  last_triggered: async (hass, value, state) => {
+    if (state.attributes.last_triggered == null) return false;
     const now = new Date().getTime();
-    const updated = new Date(entity.attributes.last_triggered).getTime();
+    const updated = new Date(state.attributes.last_triggered).getTime();
     return match(value, (now - updated) / 60000);
   },
 };

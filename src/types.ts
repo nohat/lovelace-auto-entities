@@ -17,6 +17,7 @@ interface FilterConfig {
   area?: string;
   device?: string;
   attributes?: Record<string, string>;
+  category?: string;
   last_changed?: string | number;
   last_updated?: string | number;
 
