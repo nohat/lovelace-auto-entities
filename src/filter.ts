@@ -122,6 +122,7 @@ const FILTERS: Record<
   },
   category: async (hass, value, state) => {
     const entity = await getEntity(hass, state.entity_id);
+    if (!entity) return false;
     return match(value, entity.entity_category);
   },
   not: async (hass, value, state) => {
